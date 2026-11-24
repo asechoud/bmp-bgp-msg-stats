@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BMP BGP Message Stats</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0f1419;
+      --bg-elev: #1a222c;
+      --line: #2a3542;
+      --text: #e8eef4;
+      --muted: #8b9aab;
+      --accent: #3d9a7a;
+      --accent-2: #d4a017;
+      --warn: #c45c26;
+      --recv: #5b9fd4;
+      --sent: #c17a9b;
+      --ok: #3d9a7a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "IBM Plex Sans", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, #1c2a24 0%, transparent 55%),
+        radial-gradient(900px 500px at 100% 0%, #1a2433 0%, transparent 50%),
+        var(--bg);
+    }
+    header {
+      padding: 1.75rem 1.5rem 1rem;
+      border-bottom: 1px solid var(--line);
+    }
+    header .brand {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.75rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin: 0 0 0.35rem;
+    }
+    h1 {
+      margin: 0;
+      font-size: clamp(1.4rem, 2.5vw, 1.85rem);
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    header p {
+      margin: 0.45rem 0 0;
+      color: var(--muted);
+      max-width: 52rem;
+      line-height: 1.45;
+      font-size: 0.95rem;
+    }
+    main { padding: 1.25rem 1.5rem 3rem; }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem 1.25rem;
+      margin-bottom: 1.25rem;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .meta strong { color: var(--text); font-weight: 500; }
+    .grid {
+      display: grid;
+      gap: 1rem;
+    }
+    @media (min-width: 960px) {
+      .grid.peers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    .panel {
+      background: color-mix(in srgb, var(--bg-elev) 92%, transparent);
+      border: 1px solid var(--line);
+      border-radius: 2px;
+      padding: 1rem 1.1rem 1.15rem;
+    }
+    .panel h2 {
+      margin: 0 0 0.75rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+    .peer-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      align-items: baseline;
+      margin-bottom: 0.85rem;
+    }
+    .peer-head h2 { margin: 0; font-family: "IBM Plex Mono", monospace; font-size: 0.92rem; }
+    .badge {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.68rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 0.2rem 0.45rem;
+      border: 1px solid var(--line);
+    }
+    .badge.up { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 50%, var(--line)); }
+    .badge.down { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, var(--line)); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.35rem 0.4rem;
+      border-bottom: 1px solid var(--line);
+      font-family: "IBM Plex Mono", monospace;
+    }
+    th { color: var(--muted); font-weight: 500; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    td.num { text-align: right; }
+    .dir-recv { color: var(--recv); }
+    .dir-sent { color: var(--sent); }
+    .empty {
+      color: var(--muted);
+      padding: 2rem 1rem;
+      text-align: center;
+      border: 1px dashed var(--line);
+    }
+    .empty code {
+      font-family: "IBM Plex Mono", monospace;
+      color: var(--accent-2);
+      font-size: 0.85rem;
+    }
+    .usecases {
+      display: grid;
+      gap: 0.55rem;
+      grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+      margin-top: 0.5rem;
+    }
+    .uc {
+      border: 1px solid var(--line);
+      padding: 0.55rem 0.65rem;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .uc b { display: block; color: var(--text); font-size: 0.8rem; margin-bottom: 0.2rem; font-weight: 600; }
+    .disc { color: var(--warn); font-size: 0.75rem; margin-top: 0.6rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <p class="brand">BMP · BGP Message Stats</p>
+    <h1>Session PDU counters on the BMP feed</h1>
+    <p>
+      Monitoring station view of UPDATE, KEEPALIVE, NOTIFICATION, ROUTE-REFRESH,
+      and total BGP PDU counters from
+      <span id="draft">draft-choudhary-grow-bmp-bgp-msg-stats-00</span>.
+      Counters survive Peer Down; rates come from successive Statistics Reports.
+    </p>
+  </header>
+  <main>
+    <div class="meta">
+      <div>Status: <strong id="status">connecting…</strong></div>
+      <div>Routers: <strong id="router-count">0</strong></div>
+      <div>Peers: <strong id="peer-count">0</strong></div>
+      <div>Refresh: <strong>2s</strong></div>
+    </div>
+
+    <section class="panel" style="margin-bottom:1rem">
+      <h2>Use cases mapped to counters</h2>
+      <div class="usecases">
+        <div class="uc"><b>UC1 Hold-timer health</b>TBD3 / TBD1 flattening while Established</div>
+        <div class="uc"><b>UC2 Route churn</b>TBD1 / TBD2 vs stable Adj-RIB size</div>
+        <div class="uc"><b>UC3 NOTIFICATION history</b>TBD5 / TBD6 across flaps</div>
+        <div class="uc"><b>UC4 Refresh storms</b>TBD7 / TBD8 request rate</div>
+        <div class="uc"><b>UC5 PDU baseline</b>TBD9 / TBD10 capacity view</div>
+        <div class="uc"><b>UC6–8 Unified feed</b>same Per-Peer Header as RIBs</div>
+      </div>
+    </section>
+
+    <div id="content" class="empty">
+      Waiting for a BMP speaker.<br /><br />
+      Run the simulator:<br />
+      <code>go run ./cmd/bmp-simulator -collector 127.0.0.1:11019</code>
+    </div>
+  </main>
+  <script>
+    const fmt = (n) => (n === undefined || n === null) ? "—" : Number(n).toLocaleString();
+    const rate = (n) => (n === undefined || n === null) ? "—" : Number(n).toFixed(2);
+
+    const rows = [
+      ["UPDATE received", "update_received", "recv"],
+      ["UPDATE sent", "update_sent", "sent"],
+      ["KEEPALIVE received", "keepalive_received", "recv"],
+      ["KEEPALIVE sent", "keepalive_sent", "sent"],
+      ["NOTIFICATION received", "notification_received", "recv"],
+      ["NOTIFICATION sent", "notification_sent", "sent"],
+      ["ROUTE-REFRESH received", "route_refresh_received", "recv"],
+      ["ROUTE-REFRESH sent", "route_refresh_sent", "sent"],
+      ["Total received", "total_received", "recv"],
+      ["Total sent", "total_sent", "sent"],
+    ];
+
+    async function refresh() {
+      try {
+        const res = await fetch("/api/snapshot");
+        const data = await res.json();
+        document.getElementById("status").textContent = "live";
+        document.getElementById("draft").textContent = data.draft || "";
+        document.getElementById("router-count").textContent = (data.routers || []).length;
+        document.getElementById("peer-count").textContent = (data.peers || []).length;
+        const el = document.getElementById("content");
+        if (!data.peers || data.peers.length === 0) {
+          el.className = "empty";
+          el.innerHTML = `Waiting for a BMP speaker.<br /><br />Run the simulator:<br /><code>go run ./cmd/bmp-simulator -collector 127.0.0.1:11019</code>`;
+          return;
+        }
+        el.className = "grid peers";
+        el.innerHTML = data.peers.map(peer => {
+          const badge = peer.up ? `<span class="badge up">Established</span>` : `<span class="badge down">Down</span>`;
+          const c = peer.counters || {};
+          const rates = peer.rates_per_sec || {};
+          const body = rows.map(([label, key, dir]) => {
+            const val = c[key];
+            return `<tr>
+              <td class="dir-${dir}">${label}</td>
+              <td class="num">${fmt(val)}</td>
+              <td class="num">${rate(rates[key])}</td>
+            </tr>`;
+          }).join("");
+          const discs = (peer.discontinuities || []).slice(-3).map(d => `<div>${d}</div>`).join("");
+          return `<article class="panel">
+            <div class="peer-head">
+              <h2>${peer.peer_address} · AS${peer.peer_as}</h2>
+              ${badge}
+            </div>
+            <div class="meta" style="margin:0 0 0.75rem">
+              <div>Router <strong>${peer.router || "—"}</strong></div>
+              <div>Event <strong>${peer.last_peer_event || "—"}</strong></div>
+              <div>Sample <strong>${peer.timestamp ? new Date(peer.timestamp).toISOString() : "—"}</strong></div>
+            </div>
+            <table>
+              <thead><tr><th>Counter</th><th>Value</th><th>Rate / s</th></tr></thead>
+              <tbody>${body}</tbody>
+            </table>
+            ${discs ? `<div class="disc">${discs}</div>` : ""}
+          </article>`;
+        }).join("");
+      } catch (e) {
+        document.getElementById("status").textContent = "error";
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 2000);
+  </script>
+</body>
+</html>
