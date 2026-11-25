@@ -1,0 +1,27 @@
+# Prometheus + Grafana for the Go bmp-collector /metrics endpoint.
+# Run the collector on the host first (port 18080), then:
+#   docker compose -f grafana/docker-compose.yml up -d
+# Grafana: http://127.0.0.1:13000  (admin / admin)
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    ports:
+      - "19090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    ports:
+      - "13000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./provisioning:/etc/grafana/provisioning:ro
+      - ./dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus

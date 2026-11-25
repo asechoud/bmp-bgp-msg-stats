@@ -42,11 +42,24 @@ and the `bmp_stat` schema in
 
 ```bash
 go test ./...
-go run ./cmd/bmp-collector -listen 0.0.0.0:11019 -http 127.0.0.1:18080
+go run ./cmd/bmp-collector -listen 0.0.0.0:11019 -http 0.0.0.0:18080
 go run ./cmd/bmp-simulator -collector 127.0.0.1:11019
 ```
 
-Useful for encoding/decoding and local demos without Kafka.
+Useful for encoding/decoding and local demos without Kafka.  
+Prometheus: `http://127.0.0.1:18080/metrics`
+
+## Grafana
+
+See **[docs/GRAFANA.md](docs/GRAFANA.md)**.
+
+```bash
+# collector must be listening on :18080
+docker compose -f grafana/docker-compose.yml up -d
+# Grafana http://127.0.0.1:13000  (admin/admin)
+```
+
+OpenBMP SQL path (Kafka → DB) is documented in the same file.
 
 ## License
 

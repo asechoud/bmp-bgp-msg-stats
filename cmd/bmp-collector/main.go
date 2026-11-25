@@ -15,9 +15,12 @@ import (
 	"time"
 
 	"github.com/asechoud/bmp-bgp-msg-stats/pkg/bmp"
+	"github.com/asechoud/bmp-bgp-msg-stats/pkg/metrics"
 	"github.com/asechoud/bmp-bgp-msg-stats/pkg/stats"
 	"github.com/asechoud/bmp-bgp-msg-stats/pkg/store"
 	"github.com/asechoud/bmp-bgp-msg-stats/web"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
@@ -41,6 +44,7 @@ func main() {
 	log.Printf("bmp-collector: implementing %s", stats.DraftReference)
 	log.Printf("BMP listening on %s", *listen)
 	log.Printf("dashboard on http://%s/", *httpAddr)
+	log.Printf("Prometheus metrics on http://%s/metrics", *httpAddr)
 
 	ln, err := net.Listen("tcp", *listen)
 	if err != nil {
@@ -121,6 +125,9 @@ func handleConn(conn net.Conn, st *store.Store, reg stats.Registry) {
 }
 
 func serveHTTP(addr string, st *store.Store, reg stats.Registry) {
+	regy := prometheus.NewRegistry()
+	regy.MustRegister(metrics.New(st))
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -130,6 +137,7 @@ func serveHTTP(addr string, st *store.Store, reg stats.Registry) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(web.DashboardHTML)
 	})
+	mux.Handle("/metrics", promhttp.HandlerFor(regy, promhttp.HandlerOpts{}))
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{
 			"ok":    true,
