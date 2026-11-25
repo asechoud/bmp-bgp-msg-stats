@@ -1,0 +1,129 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Peer up",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(bmp_bgp_peer_up)",
+          "legendFormat": "established",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short" }
+      }
+    },
+    {
+      "title": "BMP routers",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        {
+          "expr": "bmp_bgp_routers",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "UPDATE rate (UC2 churn)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        {
+          "expr": "sum by (peer_ip, direction) (rate(bmp_bgp_pdu_total{message=\"update\"}[5m]))",
+          "legendFormat": "{{peer_ip}} {{direction}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "fillOpacity": 10 } }
+      }
+    },
+    {
+      "title": "KEEPALIVE rate (UC1 hold-timer)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [
+        {
+          "expr": "sum by (peer_ip, direction) (rate(bmp_bgp_pdu_total{message=\"keepalive\"}[5m]))",
+          "legendFormat": "{{peer_ip}} {{direction}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops" }
+      }
+    },
+    {
+      "title": "NOTIFICATION cumulative (UC3)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        {
+          "expr": "bmp_bgp_pdu_total{message=\"notification\"}",
+          "legendFormat": "{{peer_ip}} {{direction}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "ROUTE-REFRESH rate (UC4 storms)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        {
+          "expr": "sum by (peer_ip, direction) (rate(bmp_bgp_pdu_total{message=\"route_refresh\"}[5m]))",
+          "legendFormat": "{{peer_ip}} {{direction}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops" }
+      }
+    },
+    {
+      "title": "Total PDU rate (UC5 baseline)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
+      "targets": [
+        {
+          "expr": "sum by (peer_ip, direction) (rate(bmp_bgp_pdu_total{message=\"total\"}[5m]))",
+          "legendFormat": "{{peer_ip}} {{direction}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops" }
+      }
+    },
+    {
+      "title": "Type present (1 = in last report)",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 28 },
+      "targets": [
+        {
+          "expr": "bmp_bgp_pdu_present",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["bmp", "bgp", "pdu-stats"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timezone": "browser",
+  "title": "BMP BGP PDU Stats (draft-choudhary-grow-bmp-bgp-msg-stats)",
+  "uid": "bmp-bgp-pdu-stats",
+  "version": 1
+}
