@@ -2,6 +2,9 @@
 
 Support for [draft-choudhary-grow-bmp-bgp-msg-stats-00](https://datatracker.ietf.org/doc/html/draft-choudhary-grow-bmp-bgp-msg-stats-00).
 
+End-to-end diagrams (OpenBMP path and PDU TLV processing):
+[../../docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md).
+
 ## Collector behavior
 
 - Parses Statistics Report TLVs with provisional Stat Types **44–53**
