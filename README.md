@@ -5,12 +5,47 @@ Open BMP tooling for
 BGP session PDU counters (UPDATE, KEEPALIVE, NOTIFICATION, ROUTE-REFRESH, totals)
 as BMP Statistics Types TBD1–TBD10.
 
+## Architecture at a glance
+
+Layered observability path (ingestion → processing → fan-out → visualization),
+aligned with what this repo implements. Full diagrams:
+**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+
+```mermaid
+flowchart LR
+  subgraph Sources
+    R["Routers / bmp-simulator"]
+  end
+  subgraph Ingest["Ingest"]
+    B["BMP v3<br/>Statistics Report"]
+  end
+  subgraph Process["Process"]
+    O["openbmp-collector"]
+    G["bmp-collector Go"]
+  end
+  subgraph Fanout["Fan-out"]
+    K["Kafka bmp_stat"]
+    DB["DB consumer"]
+    M["/metrics"]
+  end
+  subgraph Viz["Visualize"]
+    GS["Grafana SQL"]
+    GP["Grafana PromQL"]
+    UI["Built-in UI"]
+  end
+  R --> B --> O --> K --> DB --> GS
+  B --> G --> M --> GP
+  G --> UI
+```
+
 ## Layout
 
 | Path | What |
 |------|------|
 | **[`openbmp-collector/`](openbmp-collector/)** | **Primary:** OpenBMP C++ collector (fork of [OpenBMP/obmp-collector](https://github.com/OpenBMP/obmp-collector)) with draft PDU counter parsing and Kafka `bmp_stat` fields |
 | Go packages / `cmd/` | Reference BMP codec, collector, and simulator for the same draft |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Mermaid architecture / data-flow diagrams |
+| [`docs/GRAFANA.md`](docs/GRAFANA.md) | Prometheus + OpenBMP SQL Grafana wiring |
 
 ## OpenBMP collector (recommended)
 

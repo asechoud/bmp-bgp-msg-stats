@@ -1,6 +1,7 @@
 # Grafana integration
 
 Two paths: **Prometheus** (Go `bmp-collector`) and **SQL** (OpenBMP → Kafka → DB).
+See [ARCHITECTURE.md](ARCHITECTURE.md) for where Grafana sits in the overall pipeline.
 
 ## A. Go collector → Prometheus → Grafana
 
