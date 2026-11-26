@@ -33,7 +33,7 @@ func main() {
 	log.Printf("connected to %s (%s)", *collector, stats.DraftReference)
 
 	initMsg := bmp.EncodeInitiation(
-		"bmp-bgp-msg-stats simulator; implements "+stats.DraftReference,
+		"bmp-bgp-msg-stats simulator; BMPv4 + E-bit; implements "+stats.DraftReference,
 		*sysName,
 	)
 	if _, err := conn.Write(initMsg); err != nil {
@@ -62,6 +62,11 @@ func main() {
 		for _, s := range stats.DefaultSpecs() {
 			c.Present[s.Type] = true
 		}
+		c.ResourcePEN = stats.DefaultPEN
+		c.Present[stats.EntProcessCPU] = true
+		c.Present[stats.EntProcessMemory] = true
+		c.ProcessCPUHundredths = 1250    // 12.50%
+		c.ProcessMemoryHundredths = 4325 // 43.25%
 		// Seed like the draft §5.5 example on peer 0.
 		if i == 0 {
 			c.UpdateReceived = 1000
@@ -109,9 +114,10 @@ func main() {
 					log.Printf("write: %v", err)
 					return
 				}
-				log.Printf("Stats %s updates_in=%d ka_in=%d notif_in=%d total_in=%d",
+				log.Printf("Stats %s updates_in=%d ka_in=%d notif_in=%d total_in=%d cpu=%.2f%% mem=%.2f%%",
 					p.header.PeerAddress, p.c.UpdateReceived, p.c.KeepaliveReceived,
-					p.c.NotificationReceived, p.c.TotalReceived)
+					p.c.NotificationReceived, p.c.TotalReceived,
+					float64(p.c.ProcessCPUHundredths)/100, float64(p.c.ProcessMemoryHundredths)/100)
 			}
 		}
 	}
@@ -153,4 +159,7 @@ func bump(p *simPeer, idx int) {
 		uint64(p.c.NotificationReceived) + uint64(p.c.RouteRefreshReceived) + 2
 	p.c.TotalSent = p.c.UpdateSent + uint64(p.c.KeepaliveSent) +
 		uint64(p.c.NotificationSent) + uint64(p.c.RouteRefreshSent) + 2
+	// Oscillate process resource gauges for demo scrapes.
+	p.c.ProcessCPUHundredths = 800 + uint32((p.c.UpdateReceived/10)%4000)
+	p.c.ProcessMemoryHundredths = 3000 + uint32((p.c.TotalReceived/20)%5000)
 }

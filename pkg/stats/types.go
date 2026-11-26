@@ -114,47 +114,13 @@ func (r Registry) WidthOf(t Type) Width {
 }
 
 // TLV is one statistic TLV as carried in a Statistics Report.
+// When Enterprise is true, Type is the 15-bit enterprise code and PEN is set
+// (draft-ietf-grow-bmp-tlv E-bit).
 type TLV struct {
-	Type Type
-	Data []byte
-}
-
-// EncodeTLV encodes a single Stat Type / Stat Len / Stat Data TLV.
-func EncodeTLV(t Type, value uint64, width Width) ([]byte, error) {
-	switch width {
-	case Width32:
-		if value > 0xffffffff {
-			return nil, fmt.Errorf("stats: value %d exceeds 32-bit Counter", value)
-		}
-		buf := make([]byte, 8)
-		binary.BigEndian.PutUint16(buf[0:2], uint16(t))
-		binary.BigEndian.PutUint16(buf[2:4], 4)
-		binary.BigEndian.PutUint32(buf[4:8], uint32(value))
-		return buf, nil
-	case Width64:
-		buf := make([]byte, 12)
-		binary.BigEndian.PutUint16(buf[0:2], uint16(t))
-		binary.BigEndian.PutUint16(buf[2:4], 8)
-		binary.BigEndian.PutUint64(buf[4:12], value)
-		return buf, nil
-	default:
-		return nil, fmt.Errorf("stats: unsupported width %d", width)
-	}
-}
-
-// DecodeTLV parses one TLV from b and returns the remainder.
-func DecodeTLV(b []byte) (TLV, []byte, error) {
-	if len(b) < 4 {
-		return TLV{}, nil, fmt.Errorf("stats: TLV header truncated")
-	}
-	t := Type(binary.BigEndian.Uint16(b[0:2]))
-	n := int(binary.BigEndian.Uint16(b[2:4]))
-	if len(b) < 4+n {
-		return TLV{}, nil, fmt.Errorf("stats: TLV data truncated (type=%d len=%d)", t, n)
-	}
-	data := make([]byte, n)
-	copy(data, b[4:4+n])
-	return TLV{Type: t, Data: data}, b[4+n:], nil
+	Type       Type
+	Data       []byte
+	Enterprise bool
+	PEN        uint32
 }
 
 // Value interprets Stat Data according to width. Absent/unknown → ok=false.
@@ -190,6 +156,12 @@ type Counters struct {
 	TotalReceived        uint64 `json:"total_received"`
 	TotalSent            uint64 `json:"total_sent"`
 
+	// Enterprise process resource gauges (E-bit + PEN). Values are
+	// hundredths of a percent (0–10000). Present keyed by EntProcess*.
+	ProcessCPUHundredths    uint32 `json:"process_cpu_hundredths,omitempty"`
+	ProcessMemoryHundredths uint32 `json:"process_memory_hundredths,omitempty"`
+	ResourcePEN             uint32 `json:"resource_pen,omitempty"`
+
 	Present map[Type]bool `json:"present"`
 }
 
@@ -198,13 +170,21 @@ func NewCounters() Counters {
 	return Counters{Present: make(map[Type]bool)}
 }
 
-// ParseTLVs extracts draft PDU counters from a Statistics Report TLV list.
-// Unknown types are skipped. Duplicate draft types return an error
-// (Section 5.1: each type MUST appear at most once).
+// ParseTLVs extracts draft PDU counters and enterprise process resource
+// gauges from a Statistics Report TLV list. Unknown types are skipped.
+// Duplicate draft types return an error (Section 5.1: each type MUST appear
+// at most once).
 func (r Registry) ParseTLVs(tlvs []TLV) (Counters, error) {
 	c := NewCounters()
 	seen := make(map[Type]bool)
+	seenEnt := make(map[Type]bool)
 	for _, tlv := range tlvs {
+		if tlv.Enterprise {
+			if err := c.applyEnterprise(tlv, seenEnt); err != nil {
+				return Counters{}, err
+			}
+			continue
+		}
 		spec, ok := r[tlv.Type]
 		if !ok {
 			continue
@@ -242,6 +222,32 @@ func (r Registry) ParseTLVs(tlvs []TLV) (Counters, error) {
 		}
 	}
 	return c, nil
+}
+
+func (c *Counters) applyEnterprise(tlv TLV, seen map[Type]bool) error {
+	if tlv.PEN != DefaultPEN {
+		// Other PENs are ignored (forward-compatible).
+		return nil
+	}
+	if seen[tlv.Type] {
+		return fmt.Errorf("stats: duplicate enterprise type %d PEN %d", tlv.Type, tlv.PEN)
+	}
+	switch tlv.Type {
+	case EntProcessCPU, EntProcessMemory:
+		v, err := tlv.Value(Width32)
+		if err != nil {
+			return err
+		}
+		seen[tlv.Type] = true
+		c.Present[tlv.Type] = true
+		c.ResourcePEN = tlv.PEN
+		if tlv.Type == EntProcessCPU {
+			c.ProcessCPUHundredths = uint32(v)
+		} else {
+			c.ProcessMemoryHundredths = uint32(v)
+		}
+	}
+	return nil
 }
 
 // Encode builds Stat TLVs for every Present counter (or all, if Present is nil).
@@ -295,14 +301,46 @@ func (c Counters) Encode(reg Registry) ([]TLV, error) {
 		}
 		out = append(out, TLV{Type: spec.Type, Data: raw[4:]})
 	}
+	out = append(out, c.encodeResourceTLVs()...)
 	return out, nil
+}
+
+func (c Counters) encodeResourceTLVs() []TLV {
+	pen := c.ResourcePEN
+	if pen == 0 {
+		pen = DefaultPEN
+	}
+	var out []TLV
+	for _, rs := range DefaultResourceSpecs() {
+		if c.Present != nil && !c.Present[rs.EntType] {
+			continue
+		}
+		var v uint64
+		switch rs.EntType {
+		case EntProcessCPU:
+			v = uint64(c.ProcessCPUHundredths)
+		case EntProcessMemory:
+			v = uint64(c.ProcessMemoryHundredths)
+		}
+		raw, err := EncodeEnterpriseTLV(pen, rs.EntType, v, rs.Width)
+		if err != nil {
+			continue
+		}
+		out = append(out, TLV{
+			Type:       rs.EntType,
+			Enterprise: true,
+			PEN:        pen,
+			Data:       raw[8:], // skip hdr(4)+PEN(4)
+		})
+	}
+	return out
 }
 
 // EncodeBytes serializes TLVs into the Stats Data portion (without Stats Count).
 func EncodeBytes(tlvs []TLV) ([]byte, error) {
 	var buf []byte
 	for _, tlv := range tlvs {
-		chunk, err := EncodeTLV(tlv.Type, valueFromData(tlv.Data), Width(len(tlv.Data)))
+		chunk, err := tlv.EncodeWire()
 		if err != nil {
 			return nil, err
 		}

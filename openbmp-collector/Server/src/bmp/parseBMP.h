@@ -62,7 +62,17 @@ public:
                      STATS_ROUTE_REFRESH_RECEIVED=50, ///< TBD7 32-bit Counter
                      STATS_ROUTE_REFRESH_SENT=51,   ///< TBD8 32-bit Counter
                      STATS_TOTAL_RECEIVED=52,       ///< TBD9 64-bit Counter
-                     STATS_TOTAL_SENT=53 };         ///< TBD10 64-bit Counter
+                     STATS_TOTAL_SENT=53,           ///< TBD10 64-bit Counter
+                     // draft-ietf-grow-bmp-tlv E-bit enterprise types (PEN=9 Cisco)
+                     // On-wire type is 0x8000 | ENT_*; Stat Len includes 4-byte PEN.
+                     STATS_EBIT=0x8000,
+                     STATS_ENT_PROCESS_CPU=1,       ///< process CPU util (hundredths %)
+                     STATS_ENT_PROCESS_MEMORY=2 };  ///< process memory util (hundredths %)
+
+     /// BMPv4 mandatory Stats Reports TLV type (draft-ietf-grow-bmp-tlv).
+     static const uint16_t STATS_REPORT_TLV_STATS = 1;
+     /// Default IANA PEN for enterprise process resource gauges (Cisco).
+     static const uint32_t STATS_DEFAULT_PEN = 9;
 
      /**
       * BMP Peer Information TLV's
@@ -320,6 +330,7 @@ private:
 
     MsgBusInterface::obj_bgp_peer *p_entry;         ///< peer table entry - will be updated with BMP info
     char            bmp_type;                   ///< The BMP message type
+    uint8_t         bmp_version;                ///< BMP common-header version (3 or 4)
     uint32_t        bmp_len;                    ///< Length of the BMP message - does not include the common header size
 
     // Storage for the byte converted strings - This must match the MsgBusInterface bgp_peer struct

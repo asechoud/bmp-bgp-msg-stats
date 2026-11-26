@@ -1,5 +1,6 @@
-// Package bmp implements BMP version 3 framing per RFC 7854, with
-// support for Statistics Report TLVs from draft-choudhary-grow-bmp-bgp-msg-stats-00.
+// Package bmp implements BMP framing per RFC 7854 (v3) and
+// draft-ietf-grow-bmp-tlv (v4), including Statistics Report TLVs from
+// draft-choudhary-grow-bmp-bgp-msg-stats-00 and enterprise E-bit stats.
 package bmp
 
 import (
@@ -13,7 +14,10 @@ import (
 )
 
 const (
-	Version = 3
+	Version3 = 3
+	Version4 = 4
+	// Version is the default encode version (BMPv4).
+	Version = Version4
 
 	MsgRouteMonitoring = 0
 	MsgStatsReport     = 1
@@ -23,10 +27,10 @@ const (
 	MsgTermination     = 5
 	MsgRouteMirroring  = 6
 
-	PeerTypeGlobal  = 0
-	PeerTypeRD      = 1
-	PeerTypeLocal   = 2
-	PeerTypeLocRIB  = 3 // RFC 9069 — draft PDU counters MUST NOT be sent for this peer
+	PeerTypeGlobal = 0
+	PeerTypeRD     = 1
+	PeerTypeLocal  = 2
+	PeerTypeLocRIB = 3 // RFC 9069 — draft PDU counters MUST NOT be sent for this peer
 
 	FlagV = 0x80 // IPv6 peer address
 	FlagL = 0x40 // post-policy
@@ -37,7 +41,10 @@ const (
 	InfoSysDescr = 1
 	InfoSysName  = 2
 
-	CommonHeaderLen = 6
+	// StatsTLVType is the mandatory Stats Reports TLV (draft-ietf-grow-bmp-tlv).
+	StatsTLVType uint16 = 1
+
+	CommonHeaderLen  = 6
 	PerPeerHeaderLen = 42
 )
 
@@ -78,10 +85,13 @@ func bgpIDString(ip net.IP) string {
 	return ip.String()
 }
 
-// InformationTLV is used by Initiation and Peer Up.
+// InformationTLV is used by Initiation, Peer Up, and optional BMPv4
+// Stats Report TLVs. Enterprise+PEN are set when the E-bit is present.
 type InformationTLV struct {
-	Type uint16
-	Info []byte
+	Type       uint16
+	Info       []byte
+	Enterprise bool
+	PEN        uint32
 }
 
 // Message is a decoded BMP message.
@@ -95,6 +105,9 @@ type Message struct {
 	// Stats Report
 	StatsCount uint32
 	Stats      []stats.TLV
+	// OptionalStatsTLVs are BMPv4 trailing Stats Report TLVs after the
+	// mandatory Stats TLV (type 1). Empty for BMPv3.
+	OptionalStatsTLVs []InformationTLV
 
 	// Peer Down
 	PeerDownReason uint8
@@ -123,7 +136,7 @@ func ReadMessage(r io.Reader) (*Message, error) {
 		Length:  binary.BigEndian.Uint32(hdr[1:5]),
 		Type:    hdr[5],
 	}
-	if ch.Version != Version {
+	if ch.Version != Version3 && ch.Version != Version4 {
 		return nil, fmt.Errorf("bmp: unsupported version %d", ch.Version)
 	}
 	if ch.Length < CommonHeaderLen {
@@ -185,22 +198,75 @@ func (m *Message) parseBody(body []byte) error {
 }
 
 func (m *Message) parseStats(rest []byte) error {
+	switch m.Header.Version {
+	case Version4:
+		return m.parseStatsV4(rest)
+	default:
+		return m.parseStatsV3(rest)
+	}
+}
+
+func (m *Message) parseStatsV3(rest []byte) error {
 	if len(rest) < 4 {
 		return fmt.Errorf("bmp: stats count truncated")
 	}
 	m.StatsCount = binary.BigEndian.Uint32(rest[0:4])
 	rest = rest[4:]
+	tlvs, err := decodeStatTLVs(rest, m.StatsCount)
+	if err != nil {
+		return err
+	}
+	m.Stats = tlvs
+	return nil
+}
+
+// parseStatsV4 expects a mandatory Stats TLV (type 1) enclosing Stats Count
+// and stats data, optionally followed by other Stats Report TLVs
+// (draft-ietf-grow-bmp-tlv §5.4).
+func (m *Message) parseStatsV4(rest []byte) error {
+	if len(rest) < 4 {
+		return fmt.Errorf("bmp: BMPv4 stats TLV truncated")
+	}
+	typ := binary.BigEndian.Uint16(rest[0:2])
+	n := int(binary.BigEndian.Uint16(rest[2:4]))
+	if len(rest) < 4+n {
+		return fmt.Errorf("bmp: BMPv4 stats TLV data truncated")
+	}
+	if typ != StatsTLVType {
+		return fmt.Errorf("bmp: BMPv4 Stats Report missing mandatory Stats TLV (type 1), got %d", typ)
+	}
+	val := rest[4 : 4+n]
+	trail := rest[4+n:]
+	if len(val) < 4 {
+		return fmt.Errorf("bmp: Stats TLV value truncated")
+	}
+	m.StatsCount = binary.BigEndian.Uint32(val[0:4])
+	tlvs, err := decodeStatTLVs(val[4:], m.StatsCount)
+	if err != nil {
+		return err
+	}
+	m.Stats = tlvs
+	if len(trail) > 0 {
+		opt, err := parseInfoTLVs(trail)
+		if err != nil {
+			return fmt.Errorf("bmp: optional stats TLVs: %w", err)
+		}
+		m.OptionalStatsTLVs = opt
+	}
+	return nil
+}
+
+func decodeStatTLVs(rest []byte, count uint32) ([]stats.TLV, error) {
 	var tlvs []stats.TLV
-	for i := uint32(0); i < m.StatsCount; i++ {
+	for i := uint32(0); i < count; i++ {
 		tlv, next, err := stats.DecodeTLV(rest)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		tlvs = append(tlvs, tlv)
 		rest = next
 	}
-	m.Stats = tlvs
-	return nil
+	return tlvs, nil
 }
 
 func (m *Message) parsePeerUp(rest []byte) error {
@@ -290,14 +356,26 @@ func parseInfoTLVs(b []byte) ([]InformationTLV, error) {
 		if len(b) < 4 {
 			return nil, fmt.Errorf("bmp: info TLV truncated")
 		}
-		t := binary.BigEndian.Uint16(b[0:2])
+		wire := binary.BigEndian.Uint16(b[0:2])
 		n := int(binary.BigEndian.Uint16(b[2:4]))
 		if len(b) < 4+n {
 			return nil, fmt.Errorf("bmp: info TLV data truncated")
 		}
-		info := make([]byte, n)
-		copy(info, b[4:4+n])
-		out = append(out, InformationTLV{Type: t, Info: info})
+		payload := b[4 : 4+n]
+		tlv := InformationTLV{Type: wire}
+		// E-bit: enterprise Information TLV (draft-ietf-grow-bmp-tlv §4.2).
+		if wire&uint16(stats.EBit) != 0 {
+			if n < 4 {
+				return nil, fmt.Errorf("bmp: enterprise info TLV too short for PEN")
+			}
+			tlv.Enterprise = true
+			tlv.Type = wire & uint16(stats.TypeMask)
+			tlv.PEN = binary.BigEndian.Uint32(payload[0:4])
+			tlv.Info = append([]byte(nil), payload[4:]...)
+		} else {
+			tlv.Info = append([]byte(nil), payload...)
+		}
+		out = append(out, tlv)
 		b = b[4+n:]
 	}
 	return out, nil
@@ -306,6 +384,18 @@ func parseInfoTLVs(b []byte) ([]InformationTLV, error) {
 func encodeInfoTLVs(tlvs []InformationTLV) []byte {
 	var buf []byte
 	for _, t := range tlvs {
+		if t.Enterprise {
+			wire := uint16(stats.EBit) | (t.Type & uint16(stats.TypeMask))
+			hdr := make([]byte, 4)
+			binary.BigEndian.PutUint16(hdr[0:2], wire)
+			binary.BigEndian.PutUint16(hdr[2:4], uint16(4+len(t.Info)))
+			pen := make([]byte, 4)
+			binary.BigEndian.PutUint32(pen, t.PEN)
+			buf = append(buf, hdr...)
+			buf = append(buf, pen...)
+			buf = append(buf, t.Info...)
+			continue
+		}
 		hdr := make([]byte, 4)
 		binary.BigEndian.PutUint16(hdr[0:2], t.Type)
 		binary.BigEndian.PutUint16(hdr[2:4], uint16(len(t.Info)))
@@ -323,7 +413,7 @@ func EncodeInitiation(sysDescr, sysName string, extra ...InformationTLV) []byte 
 	}
 	tlvs = append(tlvs, extra...)
 	body := encodeInfoTLVs(tlvs)
-	return wrapCommon(MsgInitiation, body)
+	return wrapCommonVersion(Version, MsgInitiation, body)
 }
 
 // EncodePeerUp builds a minimal Peer Up message.
@@ -337,7 +427,7 @@ func EncodePeerUp(peer PerPeerHeader, local net.IP, localPort, remotePort uint16
 	body = append(body, ports...)
 	body = append(body, sentOPEN...)
 	body = append(body, recvOPEN...)
-	return wrapCommon(MsgPeerUp, body)
+	return wrapCommonVersion(Version, MsgPeerUp, body)
 }
 
 // EncodePeerDown builds a Peer Down with reason and optional data.
@@ -345,39 +435,59 @@ func EncodePeerDown(peer PerPeerHeader, reason uint8, data []byte) []byte {
 	body := encodePerPeerHeader(peer)
 	body = append(body, reason)
 	body = append(body, data...)
-	return wrapCommon(MsgPeerDown, body)
+	return wrapCommonVersion(Version, MsgPeerDown, body)
 }
 
-// EncodeStatsReport builds a Statistics Report carrying the given TLVs.
+// EncodeStatsReport builds a BMPv4 Statistics Report (Stats TLV enclosure).
 // Peer Flags O bit MUST be 0 (cleared here). Loc-RIB peers are rejected.
 func EncodeStatsReport(peer PerPeerHeader, tlvs []stats.TLV) ([]byte, error) {
+	return EncodeStatsReportVersion(Version4, peer, tlvs, nil)
+}
+
+// EncodeStatsReportV3 builds a classic RFC 7854 Statistics Report (no Stats TLV).
+func EncodeStatsReportV3(peer PerPeerHeader, tlvs []stats.TLV) ([]byte, error) {
+	return EncodeStatsReportVersion(Version3, peer, tlvs, nil)
+}
+
+// EncodeStatsReportVersion builds a Statistics Report for the given BMP version.
+func EncodeStatsReportVersion(ver uint8, peer PerPeerHeader, tlvs []stats.TLV, optional []InformationTLV) ([]byte, error) {
 	if peer.PeerType == PeerTypeLocRIB {
 		return nil, fmt.Errorf("bmp: PDU counters MUST NOT be sent for Loc-RIB peer (type 3)")
 	}
 	peer.PeerFlags &^= FlagO
 	body := encodePerPeerHeader(peer)
+	statsBody, err := encodeStatsCountAndTLVs(tlvs)
+	if err != nil {
+		return nil, err
+	}
+	switch ver {
+	case Version4:
+		hdr := make([]byte, 4)
+		binary.BigEndian.PutUint16(hdr[0:2], StatsTLVType)
+		binary.BigEndian.PutUint16(hdr[2:4], uint16(len(statsBody)))
+		body = append(body, hdr...)
+		body = append(body, statsBody...)
+		body = append(body, encodeInfoTLVs(optional)...)
+	case Version3:
+		body = append(body, statsBody...)
+	default:
+		return nil, fmt.Errorf("bmp: unsupported encode version %d", ver)
+	}
+	return wrapCommonVersion(ver, MsgStatsReport, body), nil
+}
+
+func encodeStatsCountAndTLVs(tlvs []stats.TLV) ([]byte, error) {
 	count := make([]byte, 4)
 	binary.BigEndian.PutUint32(count, uint32(len(tlvs)))
-	body = append(body, count...)
+	out := append([]byte{}, count...)
 	for _, tlv := range tlvs {
-		chunk, err := stats.EncodeTLV(tlv.Type, valueOf(tlv.Data), stats.Width(len(tlv.Data)))
+		chunk, err := tlv.EncodeWire()
 		if err != nil {
 			return nil, err
 		}
-		body = append(body, chunk...)
+		out = append(out, chunk...)
 	}
-	return wrapCommon(MsgStatsReport, body), nil
-}
-
-func valueOf(data []byte) uint64 {
-	switch len(data) {
-	case 4:
-		return uint64(binary.BigEndian.Uint32(data))
-	case 8:
-		return binary.BigEndian.Uint64(data)
-	default:
-		return 0
-	}
+	return out, nil
 }
 
 func encodePerPeerHeader(p PerPeerHeader) []byte {
@@ -401,8 +511,12 @@ func encodePerPeerHeader(p PerPeerHeader) []byte {
 }
 
 func wrapCommon(msgType uint8, body []byte) []byte {
+	return wrapCommonVersion(Version, msgType, body)
+}
+
+func wrapCommonVersion(ver uint8, msgType uint8, body []byte) []byte {
 	out := make([]byte, CommonHeaderLen+len(body))
-	out[0] = Version
+	out[0] = ver
 	binary.BigEndian.PutUint32(out[1:5], uint32(len(out)))
 	out[5] = msgType
 	copy(out[CommonHeaderLen:], body)

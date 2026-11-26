@@ -5,6 +5,10 @@ Open BMP tooling for
 BGP session PDU counters (UPDATE, KEEPALIVE, NOTIFICATION, ROUTE-REFRESH, totals)
 as BMP Statistics Types TBD1–TBD10.
 
+Also supports **BMPv4** ([draft-ietf-grow-bmp-tlv](https://datatracker.ietf.org/doc/html/draft-ietf-grow-bmp-tlv))
+Stats TLV enclosure and **E-bit** enterprise Stat Types, including process CPU and
+memory utilization gauges (default PEN 9).
+
 ## Architecture at a glance
 
 Layered observability path (ingestion → processing → fan-out → visualization),

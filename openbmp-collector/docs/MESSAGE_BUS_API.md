@@ -259,6 +259,10 @@ One or more bmp stat reports.
 26 | Total Received | Int | 8 | Total BGP PDUs received (TBD9; provisional type 52)
 27 | Total Sent | Int | 8 | Total BGP PDUs sent (TBD10; provisional type 53)
 28 | PDU Stats Present | Int | 2 | Bitmask of which TBD1–TBD10 fields were present in the BMP report (bit 0 = TBD1 … bit 9 = TBD10). Omitted types must not be treated as zero.
+29 | Process CPU Hundredths | Int | 4 | Enterprise (E-bit) process CPU utilization in hundredths of a percent (PEN default 9)
+30 | Process Memory Hundredths | Int | 4 | Enterprise (E-bit) process memory utilization in hundredths of a percent
+31 | Resource PEN | Int | 4 | IANA Private Enterprise Number used for fields 29–30
+32 | Resource Stats Present | Int | 1 | Bitmask: bit0 = CPU present, bit1 = memory present
 
 
 ### Object: <font color="blue">base\_attribute</font> (openbmp.parsed.base\_attribute)

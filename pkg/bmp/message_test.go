@@ -15,9 +15,14 @@ func TestStatsReportRoundTrip(t *testing.T) {
 	c.UpdateReceived = 1000
 	c.KeepaliveReceived = 50
 	c.TotalReceived = 1060
+	c.ResourcePEN = stats.DefaultPEN
+	c.ProcessCPUHundredths = 1250
+	c.ProcessMemoryHundredths = 4325
 	for _, s := range stats.DefaultSpecs() {
 		c.Present[s.Type] = true
 	}
+	c.Present[stats.EntProcessCPU] = true
+	c.Present[stats.EntProcessMemory] = true
 	tlvs, err := c.Encode(reg)
 	if err != nil {
 		t.Fatal(err)
@@ -38,6 +43,9 @@ func TestStatsReportRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if decoded.Header.Version != Version4 {
+		t.Fatalf("want BMPv4, got %d", decoded.Header.Version)
+	}
 	if decoded.Header.Type != MsgStatsReport {
 		t.Fatalf("type %d", decoded.Header.Type)
 	}
@@ -50,6 +58,46 @@ func TestStatsReportRoundTrip(t *testing.T) {
 	}
 	if got.UpdateReceived != 1000 || got.KeepaliveReceived != 50 || got.TotalReceived != 1060 {
 		t.Fatalf("counters %+v", got)
+	}
+	if got.ProcessCPUHundredths != 1250 || got.ProcessMemoryHundredths != 4325 {
+		t.Fatalf("resource gauges %+v", got)
+	}
+	if !got.Present[stats.EntProcessCPU] || got.ResourcePEN != stats.DefaultPEN {
+		t.Fatalf("enterprise present/PEN %+v", got)
+	}
+}
+
+func TestStatsReportV3StillDecodable(t *testing.T) {
+	reg := stats.DefaultRegistry()
+	c := stats.NewCounters()
+	c.UpdateReceived = 7
+	c.Present[stats.TypeUpdateReceived] = true
+	tlvs, err := c.Encode(reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Encode only includes resource TLVs when Present; strip to PDU-only for v3 fixture.
+	var pduOnly []stats.TLV
+	for _, tlv := range tlvs {
+		if !tlv.Enterprise {
+			pduOnly = append(pduOnly, tlv)
+		}
+	}
+	peer := PerPeerHeader{PeerType: PeerTypeGlobal, PeerAddress: net.IPv4(1, 2, 3, 4), PeerAS: 1, PeerBGPID: net.IPv4(1, 2, 3, 4)}
+	msg, err := EncodeStatsReportV3(peer, pduOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := ReadMessage(bytes.NewReader(msg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Header.Version != Version3 {
+		t.Fatalf("want v3 got %d", decoded.Header.Version)
+	}
+	got, err := reg.ParseTLVs(decoded.Stats)
+	if err != nil || got.UpdateReceived != 7 {
+		t.Fatalf("v3 decode %+v err=%v", got, err)
 	}
 }
 

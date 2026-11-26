@@ -84,3 +84,42 @@ func Test64BitCounterEncoding(t *testing.T) {
 		t.Fatal("high 32 bits unexpectedly zero for this fixture")
 	}
 }
+
+func TestEnterpriseEBitRoundTrip(t *testing.T) {
+	reg := DefaultRegistry()
+	c := NewCounters()
+	c.ResourcePEN = DefaultPEN
+	c.ProcessCPUHundredths = 9999
+	c.ProcessMemoryHundredths = 1
+	c.Present[EntProcessCPU] = true
+	c.Present[EntProcessMemory] = true
+	tlvs, err := c.Encode(reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tlvs) != 2 {
+		t.Fatalf("expected 2 enterprise TLVs, got %d", len(tlvs))
+	}
+	raw, err := EncodeBytes(tlvs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// First TLV: E-bit set, type 1, Stat Len = 8 (PEN+4).
+	wire := Type(binary.BigEndian.Uint16(raw[0:2]))
+	if !IsEnterprise(wire) || EnterpriseType(wire) != EntProcessCPU {
+		t.Fatalf("wire type %#x", wire)
+	}
+	if binary.BigEndian.Uint16(raw[2:4]) != 8 {
+		t.Fatalf("Stat Len want 8 got %d", binary.BigEndian.Uint16(raw[2:4]))
+	}
+	if binary.BigEndian.Uint32(raw[4:8]) != DefaultPEN {
+		t.Fatal("PEN mismatch")
+	}
+	got, err := reg.ParseTLVs(tlvs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ProcessCPUHundredths != 9999 || got.ProcessMemoryHundredths != 1 {
+		t.Fatalf("got %+v", got)
+	}
+}

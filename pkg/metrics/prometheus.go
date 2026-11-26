@@ -13,15 +13,18 @@ import (
 type Collector struct {
 	store *store.Store
 
-	pdu     *prometheus.Desc
-	present *prometheus.Desc
-	peerUp  *prometheus.Desc
-	routers *prometheus.Desc
+	pdu      *prometheus.Desc
+	present  *prometheus.Desc
+	peerUp   *prometheus.Desc
+	routers  *prometheus.Desc
+	procCPU  *prometheus.Desc
+	procMem  *prometheus.Desc
 }
 
 // New returns a Collector bound to st.
 func New(st *store.Store) *Collector {
 	labels := []string{"router", "peer_ip", "peer_as", "peer_bgp_id", "message", "direction"}
+	peerLabels := []string{"router", "peer_ip", "peer_as", "peer_bgp_id", "pen"}
 	return &Collector{
 		store: st,
 		pdu: prometheus.NewDesc(
@@ -44,6 +47,16 @@ func New(st *store.Store) *Collector {
 			"Number of connected BMP routers (speakers).",
 			nil, nil,
 		),
+		procCPU: prometheus.NewDesc(
+			"bmp_process_cpu_percent",
+			"Enterprise (E-bit) process CPU utilization from BMP Statistics Report (percent).",
+			peerLabels, nil,
+		),
+		procMem: prometheus.NewDesc(
+			"bmp_process_memory_percent",
+			"Enterprise (E-bit) process memory utilization from BMP Statistics Report (percent).",
+			peerLabels, nil,
+		),
 	}
 }
 
@@ -53,6 +66,8 @@ func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.present
 	ch <- c.peerUp
 	ch <- c.routers
+	ch <- c.procCPU
+	ch <- c.procMem
 }
 
 // Collect implements prometheus.Collector.
@@ -90,5 +105,21 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 		emit("route_refresh", "sent", float64(ctr.RouteRefreshSent), stats.TypeRouteRefreshSent)
 		emit("total", "received", float64(ctr.TotalReceived), stats.TypeTotalReceived)
 		emit("total", "sent", float64(ctr.TotalSent), stats.TypeTotalSent)
+
+		if ctr.Present[stats.EntProcessCPU] || ctr.Present[stats.EntProcessMemory] {
+			pen := strconv.FormatUint(uint64(ctr.ResourcePEN), 10)
+			if ctr.ResourcePEN == 0 {
+				pen = strconv.FormatUint(uint64(stats.DefaultPEN), 10)
+			}
+			rl := append(append([]string{}, base...), pen)
+			if ctr.Present[stats.EntProcessCPU] {
+				ch <- prometheus.MustNewConstMetric(c.procCPU, prometheus.GaugeValue,
+					float64(ctr.ProcessCPUHundredths)/100, rl...)
+			}
+			if ctr.Present[stats.EntProcessMemory] {
+				ch <- prometheus.MustNewConstMetric(c.procMem, prometheus.GaugeValue,
+					float64(ctr.ProcessMemoryHundredths)/100, rl...)
+			}
+		}
 	}
 }

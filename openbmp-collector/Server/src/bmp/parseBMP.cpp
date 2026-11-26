@@ -30,6 +30,7 @@
 parseBMP::parseBMP(Logger *logPtr, MsgBusInterface::obj_bgp_peer *peer_entry) {
     debug = false;
     bmp_type = -1; // Initially set to error
+    bmp_version = 0;
     bmp_len = 0;
     logger = logPtr;
 
@@ -90,13 +91,15 @@ char parseBMP::handleMessage(int sock) {
         throw "(3) Cannot read the BMP version byte from socket";
 
     // check the version
-    if (ver == 3) { // / RFC7854
-        parseBMPv3(sock);
+    if (ver == 3 || ver == 4) { // RFC7854 (v3) / draft-ietf-grow-bmp-tlv (v4)
+        parseBMPv3(sock); // common header length/type layout is shared; v4 differs in Stats body
+        bmp_version = ver;
     }
 
     // Handle the older versions
     else if (ver == 1 || ver == 2) {
         SELF_DEBUG("Older BMP version of %d, consider upgrading the router to support BMPv3", ver);
+        bmp_version = ver;
         parseBMPv2(sock);
 
     } else
@@ -724,6 +727,24 @@ bool parseBMP::handleStatsReport(int sock, MsgBusInterface::obj_stats_report &st
     unsigned long stats_cnt = 0; // Number of counter stat objects to follow
     unsigned char b[8];
 
+    // BMPv4: Stats Count + stats data are enclosed in mandatory Stats TLV type 1.
+    if (bmp_version == 4) {
+        uint16_t tlv_type = 0;
+        uint16_t tlv_len = 0;
+        if ((Recv(sock, &tlv_type, 2, MSG_WAITALL)) != 2)
+            throw "ERROR: Cannot read BMPv4 Stats TLV type";
+        if ((Recv(sock, &tlv_len, 2, MSG_WAITALL)) != 2)
+            throw "ERROR: Cannot read BMPv4 Stats TLV len";
+        bmp_len -= 4;
+        bgp::SWAP_BYTES(&tlv_type);
+        bgp::SWAP_BYTES(&tlv_len);
+        if (tlv_type != STATS_REPORT_TLV_STATS)
+            throw "ERROR: BMPv4 Stats Report missing mandatory Stats TLV (type 1)";
+        // Remaining parsing consumes tlv_len bytes starting with Stats Count.
+        // Optional trailing TLVs (if any) are drained with bmp_len after the loop.
+        (void)tlv_len;
+    }
+
     if ((Recv(sock, b, 4, MSG_WAITALL)) != 4)
         throw "ERROR:  Cannot proceed since we cannot read the stats mon counter";
 
@@ -733,8 +754,8 @@ bool parseBMP::handleStatsReport(int sock, MsgBusInterface::obj_stats_report &st
     bgp::SWAP_BYTES(b, 4);
     memcpy((void*) &stats_cnt, (void*) b, 4);
 
-    SELF_DEBUG("sock = %d : STATS REPORT Count: %u (%d %d %d %d)",
-                sock, stats_cnt, b[0], b[1], b[2], b[3]);
+    SELF_DEBUG("sock = %d : STATS REPORT Count: %u (%d %d %d %d) bmp_ver=%u",
+                sock, stats_cnt, b[0], b[1], b[2], b[3], bmp_version);
 
     // Vars used per counter object
     unsigned short stat_type = 0;
@@ -756,6 +777,47 @@ bool parseBMP::handleStatsReport(int sock, MsgBusInterface::obj_stats_report &st
 
         SELF_DEBUG("sock=%d STATS: %lu : TYPE = %u LEN = %u", sock,
                     i, stat_type, stat_len);
+
+        // E-bit enterprise Stat Type (draft-ietf-grow-bmp-tlv): PEN precedes data.
+        if (stat_type & STATS_EBIT) {
+            uint16_t ent_type = stat_type & 0x7fff;
+            if (stat_len < 4) {
+                SELF_DEBUG("sock=%d: enterprise stat len %u too short", sock, stat_len);
+                while (stat_len-- > 0)
+                    Recv(sock, &b[0], 1, 0);
+                continue;
+            }
+            uint32_t pen = 0;
+            if ((Recv(sock, &pen, 4, MSG_WAITALL)) != 4)
+                throw "ERROR: Cannot read enterprise PEN";
+            bmp_len -= 4;
+            bgp::SWAP_BYTES(&pen);
+            uint16_t data_len = stat_len - 4;
+            if (data_len != 4 && data_len != 8) {
+                SELF_DEBUG("sock=%d: skip enterprise type %u pen %u unexpected data_len %u",
+                           sock, ent_type, pen, data_len);
+                while (data_len-- > 0)
+                    Recv(sock, &b[0], 1, 0);
+                continue;
+            }
+            if ((Recv(sock, b, data_len, MSG_WAITALL)) != data_len)
+                throw "ERROR: Cannot read enterprise Stat Data";
+            bmp_len -= data_len;
+            bgp::SWAP_BYTES(b, data_len);
+            if (pen == STATS_DEFAULT_PEN && data_len == 4) {
+                uint32_t val = 0;
+                memcpy(&val, b, 4);
+                stats.resource_pen = pen;
+                if (ent_type == STATS_ENT_PROCESS_CPU) {
+                    stats.process_cpu_hundredths = val;
+                    stats.resource_stats_present |= 0x1;
+                } else if (ent_type == STATS_ENT_PROCESS_MEMORY) {
+                    stats.process_memory_hundredths = val;
+                    stats.resource_stats_present |= 0x2;
+                }
+            }
+            continue;
+        }
 
         // check if this is a 32 bit number  (default)
         if (stat_len == 4 or stat_len == 8) {
@@ -888,6 +950,16 @@ bool parseBMP::handleStatsReport(int sock, MsgBusInterface::obj_stats_report &st
 
             while (stat_len-- > 0)
                 Recv(sock, &b[0], 1, 0);
+        }
+    }
+
+    // BMPv4 may have optional trailing TLVs after the Stats TLV; drain them.
+    if (bmp_version == 4) {
+        while (bmp_len > 0) {
+            unsigned char skip;
+            if (Recv(sock, &skip, 1, MSG_WAITALL) != 1)
+                break;
+            bmp_len--;
         }
     }
 

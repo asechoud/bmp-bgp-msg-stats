@@ -310,6 +310,12 @@ public:
          * (draft §5.1). RFC 7854 types 0–8 retain historical zero-fill behavior.
          */
         uint16_t        pdu_stats_present;
+
+        // Enterprise (E-bit) process resource gauges — hundredths of a percent.
+        uint32_t        process_cpu_hundredths;     ///< E-bit type 1 (PEN)
+        uint32_t        process_memory_hundredths;  ///< E-bit type 2 (PEN)
+        uint32_t        resource_pen;               ///< IANA PEN used for resource gauges
+        uint8_t         resource_stats_present;     ///< bit0=CPU, bit1=memory
     };
 
     /**

@@ -1158,7 +1158,8 @@ void msgBus_kafka::add_StatReport(obj_bgp_peer &peer, obj_stats_report &stats) {
              "add\t%" PRIu64 "\t%s\t%s\t%s\t%s\t%" PRIu32 "\t%s\t%" PRIu32 "\t%" PRIu32 "\t%" PRIu32 "\t%" PRIu32 "\t%" PRIu32
                      "\t%" PRIu32 "\t%" PRIu32 "\t%" PRIu64 "\t%" PRIu64
                      "\t%" PRIu64 "\t%" PRIu64 "\t%" PRIu32 "\t%" PRIu32 "\t%" PRIu32 "\t%" PRIu32
-                     "\t%" PRIu32 "\t%" PRIu32 "\t%" PRIu64 "\t%" PRIu64 "\t%" PRIu16 "\n",
+                     "\t%" PRIu32 "\t%" PRIu32 "\t%" PRIu64 "\t%" PRIu64 "\t%" PRIu16
+                     "\t%" PRIu32 "\t%" PRIu32 "\t%" PRIu32 "\t%" PRIu8 "\n",
              bmp_stat_seq, r_hash_str.c_str(), router_ip.c_str(),p_hash_str.c_str(), peer.peer_addr, peer.peer_as, ts.c_str(),
              stats.prefixes_rej,stats.known_dup_prefixes, stats.known_dup_withdraws, stats.invalid_cluster_list,
              stats.invalid_as_path_loop, stats.invalid_originator_id, stats.invalid_as_confed_loop,
@@ -1168,7 +1169,9 @@ void msgBus_kafka::add_StatReport(obj_bgp_peer &peer, obj_stats_report &stats) {
              stats.notification_received, stats.notification_sent,
              stats.route_refresh_received, stats.route_refresh_sent,
              stats.total_received, stats.total_sent,
-             stats.pdu_stats_present);
+             stats.pdu_stats_present,
+             stats.process_cpu_hundredths, stats.process_memory_hundredths,
+             stats.resource_pen, stats.resource_stats_present);
 
 
     produce(MSGBUS_TOPIC_VAR_BMP_STAT, buf, strlen(buf), 1, p_hash_str, &peer_list[p_hash_str], peer.peer_as);

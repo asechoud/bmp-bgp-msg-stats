@@ -16,8 +16,11 @@ Types **44–53** / TBD1–TBD10). They diverge after the collector:
 
 | Path | Ingest | Fan-out | Visualize |
 |------|--------|---------|-----------|
-| **OpenBMP** (primary) | `openbmpd` | Kafka `bmp_stat` → DB consumer | Grafana SQL ([docs/GRAFANA.md](GRAFANA.md)) |
-| **Go reference** | `bmp-collector` | In-memory store + `/metrics` | Built-in UI + Prometheus → Grafana |
+| **OpenBMP** (primary) | `openbmpd` (BMPv3/v4) | Kafka `bmp_stat` → DB consumer | Grafana SQL ([docs/GRAFANA.md](GRAFANA.md)) |
+| **Go reference** | `bmp-collector` (BMPv3/v4 + E-bit) | In-memory store + `/metrics` | Built-in UI + Prometheus → Grafana |
+
+BMPv4 Stats Reports enclose Stats Count/data in Stats TLV type 1. Enterprise
+process CPU/memory gauges use the E-bit + IANA PEN (see [IMPLEMENTATION.md](IMPLEMENTATION.md)).
 
 ```mermaid
 flowchart TB
